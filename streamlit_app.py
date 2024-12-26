@@ -11,49 +11,60 @@ st.title("🎬 Movies dataset")
 # reruns (e.g. if the user interacts with the widgets).
 @st.cache_data
 def load_data():
-    df = pd.read_csv("data/movies_genres_summary.csv")
+    df = pd.read_csv("data/cleaned_drought_data_part1.csv")
     return df
 
 
 df = load_data()
 
-# Show a multiselect widget with the genres using `st.multiselect`.
-genres = st.multiselect(
-    "Genres",
-    df.genre.unique(),
-    ["Action", "Adventure", "Biography", "Comedy", "Drama", "Horror"],
+# User filters
+# Filter by FIPS (location identifier)
+fips_codes = st.multiselect(
+    "Select FIPS (Location)",
+    options=df["fips"].unique(),
+    default=df["fips"].unique()[:5]  # Default: first 5 locations
 )
 
-# Show a slider widget with the years using `st.slider`.
-years = st.slider("Years", 1986, 2006, (2000, 2016))
+# Filter by date range
+dates = pd.to_datetime(df["date"])
+min_date, max_date = dates.min(), dates.max()
+date_range = st.slider("Select Date Range", min_date, max_date, (min_date, max_date))
 
-# Filter the dataframe based on the widget input and reshape it.
-df_filtered = df[(df["genre"].isin(genres)) & (df["year"].between(years[0], years[1]))]
-df_reshaped = df_filtered.pivot_table(
-    index="year", columns="genre", values="gross", aggfunc="sum", fill_value=0
-)
-df_reshaped = df_reshaped.sort_values(by="year", ascending=False)
+# Select metric to visualize
+metrics = [
+    "PRECTOT",  # Precipitation
+    "T2M",      # Mean Temperature
+    "T2M_MAX",  # Max Temperature
+    "T2M_MIN",  # Min Temperature
+    "WS10M",    # Wind Speed at 10m
+]
+selected_metric = st.selectbox("Select Metric to Visualize", options=metrics)
 
+# Filter data based on user inputs
+df_filtered = df[
+    (df["fips"].isin(fips_codes)) & 
+    (pd.to_datetime(df["date"]).between(date_range[0], date_range[1]))
+]
 
-# Display the data as a table using `st.dataframe`.
-st.dataframe(
-    df_reshaped,
-    use_container_width=True,
-    column_config={"year": st.column_config.TextColumn("Year")},
-)
+# Visualize selected metric over time
+st.write(f"### {selected_metric} Over Time")
 
-# Display the data as an Altair chart using `st.altair_chart`.
-df_chart = pd.melt(
-    df_reshaped.reset_index(), id_vars="year", var_name="genre", value_name="gross"
-)
-chart = (
-    alt.Chart(df_chart)
-    .mark_line()
-    .encode(
-        x=alt.X("year:N", title="Year"),
-        y=alt.Y("gross:Q", title="Gross earnings ($)"),
-        color="genre:N",
+if df_filtered.empty:
+    st.warning("No data available for the selected filters. Try adjusting your selection.")
+else:
+    # Line chart of the selected metric over time
+    chart = (
+        alt.Chart(df_filtered)
+        .mark_line()
+        .encode(
+            x=alt.X("date:T", title="Date"),
+            y=alt.Y(selected_metric, title=selected_metric),
+            color="fips:N",  # Different line for each FIPS
+        )
+        .properties(height=400)
     )
-    .properties(height=320)
-)
-st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
+
+# Display the filtered dataframe
+st.write("### Filtered Dataset")
+st.dataframe(df_filtered, use_container_width=True)
